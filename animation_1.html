@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Best, Worst and Average Case Animation</title>
+<style>
+  :root { --bg:#f7f8fa; --fg:#1d2330; --card:#fff; --line:#d7dce4; --bar:#9db7e6; --cmp:#f2a93b; --piv:#d9534f; --sorted:#5cb85c; --found:#2e9e5b; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171d; --fg:#e8ebf0; --card:#1d212a; --line:#343b49; --bar:#4a6aa5; } }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; font-family: system-ui, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--fg); }
+  h1 { font-size:20px; margin:0 0 12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:8px; }
+  label { font-size:13px; display:flex; gap:6px; align-items:center; }
+  input[type=text], input[type=number], select { padding:5px 7px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  input[type=text] { width:260px; }
+  input[type=number] { width:64px; }
+  button { padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); cursor:pointer; }
+  button:hover { border-color:#6b8fd6; }
+  button.primary { background:#3b6fd6; color:#fff; border-color:#3b6fd6; }
+  #stage { height:240px; display:flex; align-items:flex-end; gap:3px; padding:8px 4px 0; border-bottom:2px solid var(--line); }
+  .bar { flex:1; background:var(--bar); border-radius:3px 3px 0 0; position:relative; min-width:6px; transition:height .12s, background .12s; }
+  .bar span { position:absolute; top:-16px; left:0; right:0; text-align:center; font-size:11px; }
+  .bar.cmp { background:var(--cmp); } .bar.pivot { background:var(--piv); }
+  .bar.sorted { background:var(--sorted); } .bar.found { background:var(--found); }
+  #msg { min-height:42px; font-size:15px; margin-top:10px; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; }
+  .stat { border:1px solid var(--line); border-radius:8px; padding:8px; font-size:13px; }
+  .stat b { display:block; font-size:20px; }
+  table { border-collapse:collapse; font-size:13px; width:100%; }
+  th, td { border-bottom:1px solid var(--line); padding:5px 8px; text-align:right; }
+  th:first-child, td:first-child { text-align:left; }
+  .legend span { display:inline-block; width:12px; height:12px; border-radius:2px; margin:0 4px 0 12px; vertical-align:middle; }
+  small { opacity:.75; }
+</style>
+</head>
+<body>
+<h1>Best, Worst and Average Case Analysis: step-by-step animation</h1>
+
+<div class="card">
+  <div class="row">
+    <label>Algorithm
+      <select id="alg">
+        <option value="linear">Linear search</option>
+        <option value="insertion" selected>Insertion sort</option>
+        <option value="quick">Quicksort (Lomuto)</option>
+      </select></label>
+    <label>n <input type="number" id="n" min="4" max="30" value="10"></label>
+    <label id="targetWrap">Target <input type="number" id="target" value="0"></label>
+    <label id="pivotWrap">Pivot
+      <select id="pivot"><option value="last">last element</option><option value="middle">middle element</option><option value="random">random</option></select></label>
+  </div>
+  <div class="row">
+    <button id="bBest">Best case</button>
+    <button id="bWorst">Worst case</button>
+    <button id="bRandom">Random (average)</button>
+    <label>Custom array <input type="text" id="custom" placeholder="e.g. 5,2,4,6,1,3"></label>
+    <button id="bApply">Use custom</button>
+  </div>
+  <small id="presetNote"></small>
+</div>
+
+<div class="card">
+  <div class="legend"><small>Colours:</small>
+    <span style="background:var(--cmp)"></span><small>being compared</small>
+    <span style="background:var(--piv)"></span><small>key / pivot</small>
+    <span style="background:var(--sorted)"></span><small>sorted / final</small>
+    <span style="background:var(--found)"></span><small>found</small></div>
+  <div id="stage"></div>
+  <div id="msg"></div>
+  <div class="row" style="margin-top:8px">
+    <button id="bBack">&laquo; Back</button>
+    <button id="bPlay" class="primary">Play</button>
+    <button id="bStep">Step &raquo;</button>
+    <button id="bReset">Reset</button>
+    <label>Speed <input type="range" id="speed" min="1" max="10" value="5"></label>
+    <label>Frame <input type="range" id="frame" min="0" max="0" value="0" style="width:200px"></label>
+  </div>
+</div>
+
+<div class="card">
+  <div class="stats">
+    <div class="stat">Comparisons so far<b id="cCount">0</b></div>
+    <div class="stat">Final count for this input<b id="cFinal">0</b></div>
+    <div class="stat">Theory: best<b id="tBest">-</b></div>
+    <div class="stat">Theory: average<b id="tAvg">-</b></div>
+    <div class="stat">Theory: worst<b id="tWorst">-</b></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row"><button id="bExp">Run experiment (100 random inputs per size)</button>
+  <small>Compares observed average comparisons with the formula for the selected algorithm.</small></div>
+  <div id="expOut"></div>
+</div>
+
+<script>
+// ---------- frame generation ----------
+function generate(alg, arr, opt) {
+  const a = arr.slice(), n = a.length, F = []; let c = 0;
+  const done = new Set();
+  const snap = (msg, hl) => F.push({ a: a.slice(), c, msg, hl: Object.assign({}, hl || {}) });
+  const doneHL = () => { const h = {}; done.forEach(i => h[i] = 'sorted'); return h; };
+
+  if (alg === 'linear') {
+    const t = opt.target;
+    snap('Start: looking for target ' + t + ' by scanning left to right.');
+    for (let i = 0; i < n; i++) {
+      c++; snap('Compare A[' + i + '] = ' + a[i] + ' with target ' + t + (a[i] === t ? ': equal!' : ': not equal, move on.'), { [i]: 'cmp' });
+      if (a[i] === t) { snap('Found ' + t + ' at index ' + i + ' after ' + c + ' comparison(s).', { [i]: 'found' }); return F; }
+    }
+    snap('Target ' + t + ' is not in the array. Worst case: all ' + n + ' elements were compared.');
+    return F;
+  }
+
+  if (alg === 'insertion') {
+    snap('Start: A[0] = ' + a[0] + ' is a sorted prefix of length 1.', { 0: 'sorted' });
+    for (let i = 1; i < n; i++) {
+      const key = a[i]; let j = i - 1;
+      const pre = {}; for (let k = 0; k < i; k++) pre[k] = 'sorted';
+      snap('Outer step i = ' + i + ': pick key = ' + key + ' to insert into the sorted prefix.', Object.assign({}, pre, { [i]: 'pivot' }));
+      while (j >= 0) {
+        c++;
+        const gt = a[j] > key;
+        snap('Compare A[' + j + '] = ' + a[j] + ' with key ' + key + (gt ? ': larger, so shift it right.' : ': not larger, stop.'), Object.assign({}, pre, { [j]: 'cmp', [i]: 'pivot' }));
+        if (gt) { a[j + 1] = a[j]; j--; } else break;
+      }
+      a[j + 1] = key;
+      const post = {}; for (let k = 0; k <= i; k++) post[k] = 'sorted';
+      snap('Insert key ' + key + ' at index ' + (j + 1) + '. Prefix of length ' + (i + 1) + ' is sorted.', post);
+    }
+    snap('Done: sorted with ' + c + ' comparisons.', doneAll(n));
+    return F;
+  }
+
+  if (alg === 'quick') {
+    const swap = (x, y) => { const t = a[x]; a[x] = a[y]; a[y] = t; };
+    const rec = (lo, hi, depth) => {
+      if (lo > hi) return;
+      if (lo === hi) { done.add(lo); snap('Subarray of size 1 at index ' + lo + ' is already in place.', doneHL()); return; }
+      let p = hi;
+      if (opt.pivot === 'middle') p = (lo + hi) >> 1;
+      else if (opt.pivot === 'random') p = lo + Math.floor(Math.random() * (hi - lo + 1));
+      if (p !== hi) { swap(p, hi); snap('Depth ' + depth + ': move chosen pivot (' + a[hi] + ') to the end of [' + lo + '..' + hi + '].', Object.assign(doneHL(), { [hi]: 'pivot' })); }
+      const pv = a[hi]; let i = lo;
+      snap('Depth ' + depth + ': partition [' + lo + '..' + hi + '] around pivot ' + pv + '.', Object.assign(doneHL(), { [hi]: 'pivot' }));
+      for (let j = lo; j < hi; j++) {
+        c++;
+        const less = a[j] < pv;
+        snap('Compare A[' + j + '] = ' + a[j] + ' with pivot ' + pv + (less ? ': smaller, swap into left part.' : ': not smaller, leave on the right.'), Object.assign(doneHL(), { [j]: 'cmp', [hi]: 'pivot' }));
+        if (less) { swap(i, j); i++; }
+      }
+      swap(i, hi); done.add(i);
+      snap('Pivot ' + pv + ' placed at its final index ' + i + '. Left size ' + (i - lo) + ', right size ' + (hi - i) + '.', doneHL());
+      rec(lo, i - 1, depth + 1); rec(i + 1, hi, depth + 1);
+    };
+    rec(0, n - 1, 0);
+    snap('Done: sorted with ' + c + ' comparisons.', doneAll(n));
+    return F;
+  }
+}
+function doneAll(n) { const h = {}; for (let i = 0; i < n; i++) h[i] = 'sorted'; return h; }
+
+// ---------- theory ----------
+const H = n => { let s = 0; for (let k = 1; k <= n; k++) s += 1 / k; return s; };
+function theory(alg, n, pivot) {
+  if (alg === 'linear') return { best: 1, avg: (n + 1) / 2, worst: n };
+  if (alg === 'insertion') return { best: n - 1, avg: n * (n - 1) / 4 + n - H(n), worst: n * (n - 1) / 2 };
+  const B = m => m <= 1 ? 0 : (m - 1) + B(Math.floor((m - 1) / 2)) + B(Math.ceil((m - 1) / 2));
+  return { best: B(n), avg: 2 * (n + 1) * H(n) - 4 * n, worst: n * (n - 1) / 2 };
+}
+const fmt = x => Number.isInteger(x) ? String(x) : x.toFixed(2);
+
+// ---------- state / UI ----------
+const $ = id => document.getElementById(id);
+let arr = [], frames = [], idx = 0, timer = null;
+
+function shuffled(n) { const v = Array.from({ length: n }, (_, i) => i + 1); for (let i = n - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [v[i], v[j]] = [v[j], v[i]]; } return v; }
+function getN() { return Math.max(4, Math.min(30, parseInt($('n').value) || 10)); }
+
+function setPreset(kind) {
+  const alg = $('alg').value, n = getN(), sorted = Array.from({ length: n }, (_, i) => i + 1);
+  let note = '';
+  if (alg === 'linear') {
+    arr = shuffled(n);
+    if (kind === 'best') { $('target').value = arr[0]; note = 'Best case: target is the first element.'; }
+    else if (kind === 'worst') { $('target').value = n + 100; note = 'Worst case: target is absent (all n elements compared).'; }
+    else { $('target').value = arr[Math.floor(Math.random() * n)]; note = 'Average: target at a random position (expected (n+1)/2 comparisons).'; }
+  } else if (alg === 'insertion') {
+    if (kind === 'best') { arr = sorted; note = 'Best case: already sorted, 0 inversions, n-1 comparisons.'; }
+    else if (kind === 'worst') { arr = sorted.slice().reverse(); note = 'Worst case: reversed, n(n-1)/2 inversions and comparisons.'; }
+    else { arr = shuffled(n); note = 'Average: random permutation (about half the inversions of the worst case).'; }
+  } else {
+    if (kind === 'best') { arr = sorted; $('pivot').value = 'middle'; note = 'Best case: sorted input with the middle element as pivot gives perfectly balanced splits.'; }
+    else if (kind === 'worst') { arr = sorted; $('pivot').value = 'last'; note = 'Worst case: sorted input with the last element as pivot gives splits of size 0 and n-1.'; }
+    else { arr = shuffled(n); note = 'Average: random permutation (expected 2(n+1)H_n - 4n comparisons).'; }
+  }
+  $('custom').value = arr.join(',');
+  $('presetNote').textContent = note;
+  rebuild();
+}
+
+function rebuild() {
+  stop();
+  const alg = $('alg').value;
+  $('targetWrap').style.display = alg === 'linear' ? '' : 'none';
+  $('pivotWrap').style.display = alg === 'quick' ? '' : 'none';
+  frames = generate(alg, arr, { target: parseInt($('target').value), pivot: $('pivot').value });
+  idx = 0; $('frame').max = frames.length - 1;
+  const th = theory(alg, arr.length, $('pivot').value);
+  $('tBest').textContent = fmt(th.best); $('tAvg').textContent = fmt(th.avg); $('tWorst').textContent = fmt(th.worst);
+  $('cFinal').textContent = frames[frames.length - 1].c;
+  show();
+}
+
+function show() {
+  const f = frames[idx], max = Math.max(...arr);
+  const st = $('stage'); st.innerHTML = '';
+  f.a.forEach((v, i) => {
+    const d = document.createElement('div');
+    d.className = 'bar ' + (f.hl[i] || '');
+    d.style.height = Math.max(8, (v / max) * 205) + 'px';
+    if (f.a.length <= 20) { const s = document.createElement('span'); s.textContent = v; d.appendChild(s); }
+    st.appendChild(d);
+  });
+  $('msg').textContent = 'Step ' + idx + ' / ' + (frames.length - 1) + ': ' + f.msg;
+  $('cCount').textContent = f.c; $('frame').value = idx;
+}
+
+function stop() { if (timer) { clearInterval(timer); timer = null; } $('bPlay').textContent = 'Play'; }
+function play() {
+  if (timer) { stop(); return; }
+  if (idx >= frames.length - 1) idx = 0;
+  $('bPlay').textContent = 'Pause';
+  const delay = 1100 - $('speed').value * 100;
+  timer = setInterval(() => { if (idx < frames.length - 1) { idx++; show(); } else stop(); }, delay);
+}
+
+$('bPlay').onclick = play;
+$('bStep').onclick = () => { stop(); if (idx < frames.length - 1) { idx++; show(); } };
+$('bBack').onclick = () => { stop(); if (idx > 0) { idx--; show(); } };
+$('bReset').onclick = () => { stop(); idx = 0; show(); };
+$('frame').oninput = e => { stop(); idx = +e.target.value; show(); };
+$('speed').oninput = () => { if (timer) { stop(); play(); } };
+$('bBest').onclick = () => setPreset('best');
+$('bWorst').onclick = () => setPreset('worst');
+$('bRandom').onclick = () => setPreset('random');
+$('alg').onchange = () => setPreset('random');
+$('n').onchange = () => setPreset('random');
+$('target').onchange = rebuild; $('pivot').onchange = rebuild;
+$('bApply').onclick = () => {
+  const v = $('custom').value.split(/[ ,]+/).map(Number).filter(x => !isNaN(x) && x !== 0 || x === 0);
+  const clean = $('custom').value.split(/[ ,]+/).filter(s => s.trim() !== '').map(Number);
+  if (clean.length < 2 || clean.length > 30 || clean.some(isNaN)) { $('presetNote').textContent = 'Enter 2 to 30 numbers separated by commas.'; return; }
+  arr = clean; $('n').value = arr.length; $('presetNote').textContent = 'Custom array loaded.'; rebuild();
+};
+
+// ---------- experiment ----------
+$('bExp').onclick = () => {
+  const alg = $('alg').value, pivot = $('pivot').value, trials = 100;
+  let html = '<table><tr><th>n</th><th>observed avg</th><th>theory avg</th><th>theory best</th><th>theory worst</th></tr>';
+  [8, 16, 32, 64].forEach(n => {
+    let tot = 0;
+    for (let t = 0; t < trials; t++) {
+      const a = shuffled(n);
+      const tg = a[Math.floor(Math.random() * n)];
+      const fr = generate(alg, a, { target: tg, pivot: pivot });
+      tot += fr[fr.length - 1].c;
+    }
+    const th = theory(alg, n, pivot);
+    html += '<tr><td>' + n + '</td><td>' + (tot / trials).toFixed(2) + '</td><td>' + fmt(th.avg) + '</td><td>' + fmt(th.best) + '</td><td>' + fmt(th.worst) + '</td></tr>';
+  });
+  html += '</table>';
+  if (alg === 'quick' && pivot !== 'random') html += '<small>Tip: with a last or middle pivot the formula is exact for random permutations; the pivot choice only changes behaviour on structured inputs.</small>';
+  $('expOut').innerHTML = html;
+};
+
+setPreset('worst');
+</script>
+</body>
+</html>
